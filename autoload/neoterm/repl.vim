@@ -70,6 +70,44 @@ function! neoterm#repl#opfunc(type)
   call g:neoterm.repl.exec(l:lines)
 endfunction
 
-function! g:neoterm.repl.exec(command)
-  call g:neoterm.repl.instance().exec(add(a:command, g:neoterm_eof))
+function! s:store_line()
+  let prev_line = ''
+
+  function! Inner(command) closure
+    " If our repl is (i)Python, remove lines consisting only of whitespace.
+    " Such lines trigger premature execution of submitted code (e.g., before
+    " all lines defining a function are submitted)
+    if (g:neoterm_repl_command =~ 'python')
+      let pycommand = filter(a:command, 'v:val !~ "^\\s*$"')
+      " If not iPython, add a blank line between the end of an indented line and
+      " an unindented line. Python throws a syntax error, e.g., if following a
+      " function definition immediately by a call to a function, within a REPL
+      if (g:neoterm_repl_command !~ 'ipython')
+        let index = 0
+        let ipycommand = []
+
+        while index < (len(pycommand))
+          let prev_indent = len(matchstr(prev_line, '^\s*'))
+          let curr_line = pycommand[index]
+          let curr_indent = len(matchstr(curr_line, '^\s*'))
+
+          if ((prev_indent > curr_indent) && curr_indent == 0)
+            call add(ipycommand, '')
+          endif
+          call add(ipycommand, curr_line)
+
+          let prev_line = curr_line
+          let l:index += 1
+        endwhile
+      endif
+      let command = get(l:, 'ipycommand', pycommand)
+    else
+      let command = a:command
+    endif
+    call g:neoterm.repl.instance().exec(add(command, g:neoterm_eof))
+  endfunction
+
+  return funcref('Inner')
 endfunction
+
+let g:neoterm.repl.exec = s:store_line()
